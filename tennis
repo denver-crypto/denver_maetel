@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>신나용테니스 대진표 생성기 · Codex/Web</title>
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React 18 UMD + Babel -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo, useEffect } = React;
+
+    /**
+     * 신나용테니스 대진표 앱 — Codex/Web 버전 (단일 HTML)
+     * v5
+     * - React UMD + Babel in-browser
+     * - Tailwind CDN
+     * - CSV 내보내기, NTRP 밸런싱, 퇴장 시간 우선 배치
+     * - 콘솔 테스트 포함
+     */
+
+    const GENDERS = { M: "남", F: "여" };
+    const MATCH_TYPES = ["남복", "여복", "혼복", "잡복"]; // 잡복=성별 무관 복식
+
+    const DEFAULT_PLAYERS = [
+      { name: "세준", gender: "M", rating: 3.5 },
+      { name: "도현", gender: "M", rating: 3.5 },
+      { name: "낙현", gender: "M", rating: 3.0 },
+      { name: "정택", gender: "M", rating: 3.0 },
+      { name: "익규", gender: "M", rating: 3.0 },
+      { name: "길홍", gender: "M", rating: 3.5 },
+      { name: "상용", gender: "M", rating: 3.0 },
+      { name: "형석", gender: "M", rating: 3.0 },
+      { name: "승현", gender: "M", rating: 3.0 },
+      { name: "수현", gender: "F", rating: 3.0 },
+      { name: "혜림", gender: "F", rating: 3.0 },
+      { name: "지현", gender: "F", rating: 3.0 },
+      { name: "다혜", gender: "F", rating: 3.0 },
+      { name: "해은", gender: "F", rating: 2.5 },
+      { name: "민경", gender: "F", rating: 3.0 },
+      { name: "서울", gender: "F", rating: 3.0 },
+    ];
+
+    // ---------- 유틸 ----------
+    function shuffle(arr, seed = 1) {
+      let a = 1664525, c = 1013904223; const m = 2 ** 32; let s = seed >>> 0;
+      const r = [...arr];
+      for (let i = r.length - 1; i > 0; i--) {
+        s = (a * s + c) % m; const j = s % (i + 1); [r[i], r[j]] = [r[j], r[i]];
+      }
+      return r;
+    }
+
+    function toTimeStr(date) {
+      const hh = String(date.getHours()).padStart(2, "0");
+      const mm = String(date.getMinutes()).padStart(2, "0");
+      return `${hh}:${mm}`;
+    }
+
+    function addMinutes(date, mins) { const d = new Date(date.getTime()); d.setMinutes(d.getMinutes() + mins); return d; }
+
+    function timeStrToMinutes(hhmm) {
+      if (!hhmm) return null; const [h, m] = hhmm.split(":").map(Number);
+      if (Number.isNaN(h) || Number.isNaN(m)) return null; return h * 60 + m;
+    }
+
+    function pairKey(p1, p2) { const [a, b] = [p1, p2].sort(); return `${a}__${b}`; }
+
+    // ---------- 페어 생성 ----------
+    function makePairs(players, type) {
+      const males = players.filter((p) => p.gender === "M");
+      const females = players.filter((p) => p.gender === "F");
+      const all = players;
+      const byName = Object.fromEntries(players.map((p) => [p.name, p]));
+
+      const pairs = [];
+      const add = (a, b) => {
+        if (a.name === b.name) return;
+        const ra = byName[a.name]?.rating ?? 3.0; const rb = byName[b.name]?.rating ?? 3.0;
+        pairs.push({ a: a.name, b: b.name, key: pairKey(a.name, b.name), ra, rb, ratingSum: ra + rb });
+      };
+      if (type === "남복") {
+        for (let i = 0; i < males.length; i++) for (let j = i + 1; j < males.length; j++) add(males[i], males[j]);
+      } else if (type === "여복") {
+        for (let i = 0; i < females.length; i++) for (let j = i + 1; j < females.length; j++) add(females[i], females[j]);
+      } else if (type === "혼복") {
+        for (const m of males) for (const f of females) add(m, f);
+      } else { // 잡복
+        for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) add(all[i], all[j]);
+      }
+      return pairs;
+    }
+
+    // ---------- 스케줄러 ----------
+    function scheduleMatches({ players, slots, seed, maxGamesPerPlayer }) {
+      const gamesPerPlayer = Object.fromEntries(players.map((p) => [p.name, 0]));
+      const pairUsed = {}; // pairKey -> count
+      const schedule = slots.map((s) => ({ ...s, teamA: null, teamB: null }));
+
+      // 같은 시간대 묶기
+      const byTime = {}; for (const s of schedule) { (byTime[s.timeStr] ||= []).push(s); }
+      const timeKeys = Object.keys(byTime).sort();
+
+      const leaveMin = Object.fromEntries(players.map((p) => [p.name, timeStrToMinutes(p.leaveBy)]));
+
+      const pairBaseScore = (pair) => {
+        const used = (pairUsed[pair.key] || 0) * 5; // 페어 중복 가중치
+        const load = (gamesPerPlayer[pair.a] || 0) + (gamesPerPlayer[pair.b] || 0); // 개인 출전 로드
+        return used + load;
+      };
+
+      const urgencyScore = (pair, slotMin) => {
+        const diffs = [leaveMin[pair.a], leaveMin[pair.b]].filter((v) => v != null).map((v) => v - slotMin);
+        if (diffs.length === 0) return 9999; // 퇴장 시간 없음
+        const minDiff = Math.min(...diffs); if (minDiff < 0) return 10000; // 이미 지난 경우 패널티
+        return minDiff; // 분 단위
+      };
+
+      for (const t of timeKeys) {
+        const timeSlots = byTime[t];
+        const usedPlayers = new Set();
+        const slotMin = timeStrToMinutes(t) ?? 0;
+
+        for (const slot of timeSlots) {
+          const candidates = shuffle(makePairs(players, slot.type), seed + slot.slotIndex)
+            .filter((p) => !usedPlayers.has(p.a) && !usedPlayers.has(p.b))
+            .filter((p) => !maxGamesPerPlayer || (gamesPerPlayer[p.a] < maxGamesPerPlayer && gamesPerPlayer[p.b] < maxGamesPerPlayer))
+            .sort((a, b) => (pairBaseScore(a) + urgencyScore(a, slotMin) * 0.1) - (pairBaseScore(b) + urgencyScore(b, slotMin) * 0.1));
+
+          const teamA = candidates[0]; if (!teamA) continue;
+          const teamB = candidates.slice(1)
+            .filter((p) => ![teamA.a, teamA.b].includes(p.a) && ![teamA.a, teamA.b].includes(p.b))
+            .filter((p) => !usedPlayers.has(p.a) && !usedPlayers.has(p.b))
+            .filter((p) => !maxGamesPerPlayer || (gamesPerPlayer[p.a] < maxGamesPerPlayer && gamesPerPlayer[p.b] < maxGamesPerPlayer))
+            .sort((a, b) => {
+              const ad = Math.abs(teamA.ratingSum - a.ratingSum);
+              const bd = Math.abs(teamA.ratingSum - b.ratingSum);
+              const aScore = ad * 2 + pairBaseScore(a) + urgencyScore(a, slotMin) * 0.1;
+              const bScore = bd * 2 + pairBaseScore(b) + urgencyScore(b, slotMin) * 0.1;
+              return aScore - bScore;
+            })[0];
+
+          if (!teamB) continue;
+
+          slot.teamA = teamA; slot.teamB = teamB;
+          usedPlayers.add(teamA.a); usedPlayers.add(teamA.b); usedPlayers.add(teamB.a); usedPlayers.add(teamB.b);
+          gamesPerPlayer[teamA.a]++; gamesPerPlayer[teamA.b]++; gamesPerPlayer[teamB.a]++; gamesPerPlayer[teamB.b]++;
+          pairUsed[teamA.key] = (pairUsed[teamA.key] || 0) + 1; pairUsed[teamB.key] = (pairUsed[teamB.key] || 0) + 1;
+        }
+      }
+
+      return { schedule, gamesPerPlayer, pairUsed };
+    }
+
+    // ---------- 슬롯 생성 ----------
+    function makeDefaultSlots({ startTime = "08:00", endTime = "10:00", intervalMin = 30, courts = 2, pattern = ["남복", "혼복", "남복", "혼복"] }) {
+      const [sh, sm] = startTime.split(":").map(Number); const [eh, em] = endTime.split(":").map(Number);
+      const start = new Date(2020, 0, 1, sh, sm, 0); const end = new Date(2020, 0, 1, eh, em, 0);
+      const times = []; let cur = start; while (cur < end) { times.push(toTimeStr(cur)); cur = addMinutes(cur, intervalMin); }
+      const slots = []; times.forEach((timeStr, idx) => { for (let c = 1; c <= courts; c++) { const type = pattern[idx % pattern.length]; slots.push({ slotIndex: slots.length, timeStr, courtIndex: c, type }); } });
+      return slots;
+    }
+
+    // ---------- CSV ----------
+    function csvExport(schedule) {
+      const header = ["게임","코트","일정","경기타입","팀A1","팀A2","팀B1","팀B2"].join(",");
+      const rows = schedule.map((s, i) => {
+        const a1 = s.teamA ? s.teamA.a : "-"; const a2 = s.teamA ? s.teamA.b : "-";
+        const b1 = s.teamB ? s.teamB.a : "-"; const b2 = s.teamB ? s.teamB.b : "-";
+        return [i + 1, s.courtIndex, s.timeStr, s.type, a1, a2, b1, b2].join(",");
+      });
+      const csv = [header, ...rows].join("
+");
+      const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob); const a = document.createElement("a");
+      a.href = url; a.download = `shin-nayong-schedule.csv`; a.click(); URL.revokeObjectURL(url);
+    }
+
+    // ---------- 간단 테스트 ----------
+    function runTests() {
+      const t1 = ["a","b"].join("
+"); console.assert(t1.includes("
+"), "CSV newline should exist");
+      const p = [
+        { name: "M1", gender: "M", rating: 3.0 },
+        { name: "F1", gender: "F", rating: 3.0 },
+        { name: "M2", gender: "M", rating: 3.0 },
+        { name: "F2", gender: "F", rating: 3.0 },
+      ];
+      const one = [{ slotIndex: 0, timeStr: "08:00", courtIndex: 1, type: "혼복" }];
+      const { schedule } = scheduleMatches({ players: p, slots: one, seed: 1, maxGamesPerPlayer: 0 });
+      console.assert(schedule[0].teamA && schedule[0].teamB, "Two pairs must be scheduled");
+      const S = new Set([schedule[0].teamA.a, schedule[0].teamA.b, schedule[0].teamB.a, schedule[0].teamB.b]);
+      console.assert(S.size === 4, "Players in the same court/time must be unique");
+    }
+
+    function App() {
+      const [players, setPlayers] = useState(DEFAULT_PLAYERS.map(p => ({...p, rating: p.rating ?? 3.0, leaveBy: p.leaveBy ?? "" })));
+      const [seed, setSeed] = useState(42);
+      const [startTime, setStartTime] = useState("08:00");
+      const [endTime, setEndTime] = useState("10:00");
+      const [intervalMin, setIntervalMin] = useState(30);
+      const [courts, setCourts] = useState(2);
+      const [patternText, setPatternText] = useState("남복,혼복,남복,혼복");
+      const [maxGamesPerPlayer, setMaxGamesPerPlayer] = useState(0);
+
+      useEffect(() => { try { runTests(); console.log("✅ Basic tests passed"); } catch(e) { console.error("❌ Test failed:", e); } }, []);
+
+      const pattern = useMemo(() => patternText.split(",").map((s) => s.trim()).filter((s) => MATCH_TYPES.includes(s)), [patternText]);
+      const slots = useMemo(() => makeDefaultSlots({ startTime, endTime, intervalMin, courts, pattern: pattern.length ? pattern : ["잡복"] }), [startTime, endTime, intervalMin, courts, pattern]);
+      const { schedule, gamesPerPlayer, pairUsed } = useMemo(() => scheduleMatches({ players, slots, seed, maxGamesPerPlayer }), [players, slots, seed, maxGamesPerPlayer]);
+
+      const addPlayer = () => { const name = prompt("이름?"); if (!name) return; const gender = prompt("성별? (M/F)", "M"); if (!gender || !["M","F"].includes(gender.toUpperCase())) return; const rating = parseFloat(prompt("NTRP (1.0~5.0, 0.5 단위)", "3.0")||"3.0"); setPlayers(ps => [...ps, { name, gender: gender.toUpperCase(), rating: Number.isNaN(rating)?3.0:rating, leaveBy: "" }]); };
+      const removePlayer = (name) => setPlayers(ps => ps.filter(p => p.name !== name));
+      const toggleGender = (name) => setPlayers(ps => ps.map(p => p.name===name?{...p, gender: p.gender === "M" ? "F" : "M"}:p));
+      const updatePlayer = (name, patch) => setPlayers(ps => ps.map(p => p.name===name?{...p, ...patch}:p));
+      const regenerate = () => setSeed(s => s + 1);
+
+      return (
+        <div className="min-h-screen w-full">
+          <div className="max-w-6xl mx-auto p-6 space-y-6">
+            <header className="flex items-center justify-between">
+              <h1 className="text-2xl font-bold">신나용테니스 대진표 생성기</h1>
+              <div className="flex items-center gap-2">
+                <button onClick={regenerate} className="px-3 py-2 rounded-xl bg-white shadow hover:shadow-md border">재생성</button>
+                <button onClick={() => csvExport(schedule)} className="px-3 py-2 rounded-xl bg-white shadow hover:shadow-md border">CSV 내보내기</button>
+              </div>
+            </header>
+
+            <section className="grid md:grid-cols-3 gap-4">
+              <div className="bg-white rounded-2xl shadow p-4 space-y-3">
+                <h2 className="font-semibold">시간/코트 설정</h2>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-sm">시작시간
+                    <input value={startTime} onChange={(e)=>setStartTime(e.target.value)} type="time" className="w-full mt-1 border rounded-lg px-2 py-1" />
+                  </label>
+                  <label className="text-sm">종료시간
+                    <input value={endTime} onChange={(e)=>setEndTime(e.target.value)} type="time" className="w-full mt-1 border rounded-lg px-2 py-1" />
+                  </label>
+                  <label className="text-sm">인터벌(분)
+                    <input value={intervalMin} onChange={(e)=>setIntervalMin(+e.target.value)} type="number" min={10} step={5} className="w-full mt-1 border rounded-lg px-2 py-1" />
+                  </label>
+                  <label className="text-sm">코트 수
+                    <input value={courts} onChange={(e)=>setCourts(+e.target.value)} type="number" min={1} max={6} className="w-full mt-1 border rounded-lg px-2 py-1" />
+                  </label>
+                </div>
+                <label className="text-sm block">타입 패턴 (쉼표 구분)
+                  <input value={patternText} onChange={(e)=>setPatternText(e.target.value)} placeholder="예: 남복,혼복,남복,혼복" className="w-full mt-1 border rounded-lg px-2 py-1" />
+                </label>
+                <label className="text-sm block">선수 1인당 최대 경기수 (0=무제한)
+                  <input value={maxGamesPerPlayer} onChange={(e)=>setMaxGamesPerPlayer(+e.target.value)} type="number" min={0} className="w-full mt-1 border rounded-lg px-2 py-1" />
+                </label>
+                <p className="text-xs text-gray-500">※ 빠르게 끝내야 하는 선수는 "퇴장 시간"을 입력하면 초반 슬롯에 우선 배정됩니다.</p>
+              </div>
+
+              <div className="bg-white rounded-2xl shadow p-4 space-y-3 md:col-span-2">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold">선수 명단</h2>
+                  <button onClick={addPlayer} className="px-3 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700">선수 추가</button>
+                </div>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {players.map((p) => (
+                    <div key={p.name} className="border rounded-xl px-3 py-2">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium">{p.name}</div>
+                        <div className="text-xs text-gray-600">{GENDERS[p.gender]}</div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 items-center">
+                        <label className="text-xs col-span-1">NTRP
+                          <input type="number" step={0.5} min={1} max={5} value={p.rating}
+                            onChange={(e)=>updatePlayer(p.name,{rating: Math.max(1, Math.min(5, parseFloat(e.target.value)||3))})}
+                            className="w-full mt-1 border rounded-lg px-2 py-1"/>
+                        </label>
+                        <label className="text-xs col-span-2">퇴장 시간(옵션)
+                          <input type="time" value={p.leaveBy}
+                            onChange={(e)=>updatePlayer(p.name,{leaveBy: e.target.value})}
+                            className="w-full mt-1 border rounded-lg px-2 py-1"/>
+                        </label>
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <button onClick={()=>toggleGender(p.name)} className="text-xs px-2 py-1 border rounded-lg">성별전환</button>
+                        <button onClick={()=>removePlayer(p.name)} className="text-xs px-2 py-1 border rounded-lg">삭제</button>
+                        <div className="ml-auto text-xs text-gray-600">출전 {gamesPerPlayer[p.name]||0}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="bg-white rounded-2xl shadow p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="font-semibold">대진표 (한 코트 = 두 페어)</h2>
+                <div className="text-sm text-gray-500">빈 칸은 배정 불가(인원/제약 과다) → 설정 조정 후 재생성</div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="p-2 text-left">게임</th>
+                      <th className="p-2 text-left">코트</th>
+                      <th className="p-2 text-left">일정</th>
+                      <th className="p-2 text-left">경기타입</th>
+                      <th className="p-2 text-left">팀A</th>
+                      <th className="p-2 text-left">팀B</th>
+                      <th className="p-2 text-left">밸런스</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {schedule.map((s, idx) => {
+                      const aSum = s.teamA ? s.teamA.ratingSum.toFixed(1) : "-";
+                      const bSum = s.teamB ? s.teamB.ratingSum.toFixed(1) : "-";
+                      const diff = s.teamA && s.teamB ? Math.abs(s.teamA.ratingSum - s.teamB.ratingSum).toFixed(1) : "-";
+                      return (
+                        <tr key={idx} className="border-b hover:bg-gray-50">
+                          <td className="p-2">{idx + 1}</td>
+                          <td className="p-2">{s.courtIndex}</td>
+                          <td className="p-2">{s.timeStr}</td>
+                          <td className="p-2">{s.type}</td>
+                          <td className="p-2">{s.teamA ? `${s.teamA.a}(${s.teamA.ra.toFixed(1)}) / ${s.teamA.b}(${s.teamA.rb.toFixed(1)}) = ${aSum}` : "-"}</td>
+                          <td className="p-2">{s.teamB ? `${s.teamB.a}(${s.teamB.ra.toFixed(1)}) / ${s.teamB.b}(${s.teamB.rb.toFixed(1)}) = ${bSum}` : "-"}</td>
+                          <td className="p-2">{diff}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="grid md:grid-cols-2 gap-4">
+              <div className="bg-white rounded-2xl shadow p-4">
+                <h2 className="font-semibold mb-2">출전수 요약</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {players.map((p) => (
+                    <div key={p.name} className="border rounded-xl px-3 py-2">
+                      <div className="text-sm">{p.name}</div>
+                      <div className="text-xs text-gray-600">{GENDERS[p.gender]} · NTRP {p.rating?.toFixed(1)}</div>
+                      <div className="text-sm font-semibold">{gamesPerPlayer[p.name] || 0} 경기</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl shadow p-4">
+                <h2 className="font-semibold mb-2">페어 중복 현황 (상위)</h2>
+                <ul className="space-y-1 max-h-52 overflow-auto pr-2">
+                  {Object.entries(pairUsed).sort((a,b)=>b[1]-a[1]).slice(0,12).map(([k,v])=>{
+                    const [a,b] = k.split("__");
+                    return (
+                      <li key={k} className="text-sm flex justify-between">
+                        <span>{a} - {b}</span>
+                        <span className="text-gray-600">{v}회</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </section>
+
+            <footer className="text-xs text-gray-500 text-center py-6">ⓒ 신나용테니스 · NTRP 밸런싱 + 빠른퇴장 우선 배치 · v5 (Codex/Web)</footer>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>

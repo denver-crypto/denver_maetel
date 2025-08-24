@@ -1,62 +1,75 @@
-신나용테니스 대진표 생성기 🎾
+# 🎾 신나용테니스 대진표 생성기
 
-React 기반의 웹 앱으로, 테니스 클럽 복식 경기 대진표를 자동으로 생성해줍니다.
-NTRP 점수, 퇴장 시간, 경기 시간, 성별 규칙 등을 고려하여 공정하고 현실적인 매칭을 지원합니다.
+React 기반의 웹 앱으로, **테니스 클럽 복식 경기 대진표**를 자동으로 생성해줍니다.  
+NTRP 점수, 퇴장 시간, 경기 시간, 성별 규칙 등을 고려하여 **공정하고 현실적인 매칭**을 지원합니다.
 
-✨ 주요 기능
+<p align="center">
+  <img src="docs/demo.png" alt="대진표 생성기 화면 예시" width="720"/>
+</p>
 
-자동 매칭 알고리즘
+---
 
-NTRP 합산 점수 기반 밸런싱
+## 🚀 배포
 
-퇴장 시간(leaveBy) + 경기시간 고려
+- **GitHub Pages**: [https://<YOUR_ORG>.github.io/<YOUR_REPO>/](https://<YOUR_ORG>.github.io/<YOUR_REPO>/)  
+- **Vercel**: [https://<YOUR_REPO>.vercel.app](https://<YOUR_REPO>.vercel.app)
 
-연속 경기 금지 옵션
+---
 
-NTRP 팀합 차이 상한
+## ✨ 주요 기능
 
-혼복(M+F) 강제, 옵션으로 잡복 완화 허용
+- **자동 매칭 알고리즘**
+  - NTRP 합산 점수 기반 밸런싱
+  - 퇴장 시간(leaveBy) + 경기시간 고려
+  - 연속 경기 금지 옵션
+  - NTRP 팀합 차이 상한
+  - 혼복(M+F) 강제, 옵션으로 잡복 완화 허용
 
-대진표 UI
+- **대진표 UI**
+  - 코트/시간별로 팀A vs 팀B 표시
+  - 팀 합산 점수, 밸런스(점수 차) 표시
+  - 빈 칸은 배정 불가 → 제약 조정 후 재생성
 
-코트/시간별로 팀A vs 팀B 표시
+- **수동 편집 (Drag & Drop)**
+  - 자동 생성된 대진표를 직접 수정 가능
+  - 선수 칩을 끌어다 슬롯에 배치/스왑
+  - 실시간 유효성 검사: 중복/성별 규칙/퇴장 금지 체크
 
-팀 합산 점수, 밸런스(점수 차) 표시
+- **내보내기**
+  - CSV (UTF-8 BOM, 엑셀 호환)
+  - XLSX (SheetJS 동적 로드)
 
-빈 칸은 배정 불가 → 제약 조정 후 재생성
+- **테스트 내장**
+  - CSV 줄바꿈/혼복 규칙/퇴장 조건/연속 금지/NTRP cap 동작 검증
 
-수동 편집 (Drag & Drop)
+---
 
-자동 생성된 대진표를 직접 수정 가능
+## 🛠 설치 및 실행
 
-선수 칩을 끌어다 슬롯에 배치/스왑
-
-실시간 유효성 검사: 중복/성별 규칙/퇴장 금지 체크
-
-내보내기
-
-CSV (UTF-8 BOM, 엑셀 호환)
-
-XLSX (SheetJS 동적 로드)
-
-테스트 내장
-
-CSV 줄바꿈/혼복 규칙/퇴장 조건/연속 금지/NTRP cap 동작 검증
-
-🛠️ 설치 및 실행
-1. 로컬 실행
+### 1. 클론 & 의존성 설치
+```bash
+git clone https://github.com/<YOUR_ORG>/<YOUR_REPO>.git
+cd <YOUR_REPO>
 npm install
+2. 로컬 실행
 npm start
 
-2. 정적 배포
+3. 정적 빌드
+npm run build
 
-index.html 빌드 → GitHub Pages / Vercel / Netlify 등에 업로드
 
-3. PWA 적용 (선택)
+→ dist/ 또는 build/ 디렉토리를 GitHub Pages / Vercel / Netlify 등에 배포
 
-manifest.webmanifest, sw.js 포함 가능
+4. GitHub Pages 배포
+npm run build
+git subtree push --prefix build origin gh-pages
 
-모바일 홈 화면 아이콘 지원
+5. Vercel 배포
+
+Vercel
+에서 New Project → 해당 GitHub 리포 연결
+
+루트 경로 또는 build/ 경로 지정 후 배포
 
 ⚙️ 주요 옵션
 옵션	설명	기본값
@@ -89,13 +102,13 @@ NTRP 차 상한	두 팀 합산 점수 차 ≤ cap 이어야 매칭	0.5
 
 📦 기술 스택
 
-React (CDN / CRA / Vite / Next.js 모두 호환)
+React (CRA/Vite/Next.js 호환)
 
-TailwindCSS (CDN)
+TailwindCSS
 
-SheetJS (xlsx) — XLSX 내보내기용 (동적 로드)
+SheetJS (xlsx) — XLSX 내보내기용 (CDN 동적 로드)
 
-✅ TODO (확장 아이디어)
+✅ TODO (향후 확장)
 
 최소 휴식 시간(n분) 옵션
 
@@ -111,7 +124,8 @@ PWA 아이콘/매니페스트 포함 템플릿
 
 runTests() 내장으로 주요 제약사항 자동 검증
 
-코드 업데이트 시 반드시 테스트가 통과해야 배포
+코드 업데이트 시 반드시 테스트 통과 후 배포
 
-👉 이 앱은 신나용테니스 운영을 위해 제작되었습니다.
-누구나 쉽게 대진표를 생성하고, CSV/XLSX로 공유할 수 있습니다.
+📜 라이선스
+
+MIT License © 2025 신나용테니스

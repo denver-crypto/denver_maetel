@@ -136,7 +136,9 @@ function scheduleMatches({ players, slots, seed, maxGamesPerPlayer, hardLeaveBan
 
   const playersMap = new Map(players.map(p=>[p.name,p]));
 
-  for (const t of timeKeys) {
+  for (let i = 0; i < timeKeys.length; i++) {
+    const t = timeKeys[i];
+    const prevTimeStr = timeKeys[i - 1];
     const timeSlots = byTime[t];
     const usedPlayers = new Set();
     const slotMin = timeStrToMinutes(t) ?? 0;

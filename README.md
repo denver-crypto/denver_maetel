@@ -1,3 +1,9 @@
+# Tennis Match Generator
+
+This project is a React-based web app that automatically generates doubles match schedules for tennis clubs. It balances teams based on NTRP scores, leave times, gender rules, and avoids consecutive matches.
+
+---
+
 # 🎾 신나용테니스 대진표 생성기
 
 React 기반의 웹 앱으로, **테니스 클럽 복식 경기 대진표**를 자동으로 생성해줍니다.  

@@ -118,7 +118,24 @@ SheetJS (xlsx) — XLSX 내보내기용 (CDN 동적 로드)
 
 세션 저장/불러오기 (LocalStorage)
 
-PWA 아이콘/매니페스트 포함 템플릿
+## 📱 PWA 템플릿
+
+- `manifest.webmanifest`: 앱 이름, 아이콘, 테마 색상 등을 정의합니다.
+- `sw.js`: 설치/활성화 이벤트만 처리하는 간단한 서비스 워커 예제입니다.
+
+React/Vite 환경에서는 `index.html`에 다음 링크를 추가하고, `main.tsx`에서 서비스 워커를 등록하세요.
+
+```html
+<link rel="manifest" href="/manifest.webmanifest">
+```
+
+```ts
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js');
+}
+```
+
+Next.js(App Router)에서는 `app/manifest.webmanifest` 파일을 두고 `public` 디렉터리에 `sw.js`를 넣은 뒤 `layout.tsx`에서 `<link rel="manifest" href="/manifest.webmanifest" />`를 추가하면 됩니다.
 
 👨‍💻 개발 메모
 

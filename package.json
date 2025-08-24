@@ -1,0 +1,16 @@
+{
+  "name": "denver_maetel",
+  "version": "1.0.0",
+  "description": "React 기반의 웹 앱으로, **테니스 클럽 복식 경기 대진표**를 자동으로 생성해줍니다.   NTRP 점수, 퇴장 시간, 경기 시간, 성별 규칙 등을 고려하여 **공정하고 현실적인 매칭**을 지원합니다.",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "jest": "^30.0.5"
+  }
+}
